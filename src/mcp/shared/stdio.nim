@@ -12,10 +12,10 @@ type
     buffer: string
     msgHandler: MessageHandler
     errHandler: ErrorHandler
-    connected: bool
     stdinFile: File
     stdoutFile: File
     onClose: Option[CloseHandler]
+    connected: bool  # 直接在子类中维护连接状态
 
 const 
   BUFFER_SIZE = 8192  # Increased buffer size
@@ -23,15 +23,13 @@ const
   NO_BUFFERING = 0  # 无缓冲模式
 
 proc newStdioTransport*(): StdioTransport =
-  stderr.writeLine "[MCP] Creating new StdioTransport"
   new(result)
   init(Transport(result))  # Initialize base class
   result.buffer = ""
-  result.connected = false
   result.stdinFile = stdin
   result.stdoutFile = stdout
   result.onClose = none(CloseHandler)
-  stderr.writeLine "[MCP] StdioTransport created successfully"
+  result.connected = false  # 初始化为未连接状态
 
 proc appendToBuffer(transport: StdioTransport, data: string) =
   transport.buffer.add(data)
@@ -73,80 +71,155 @@ proc processMessages(transport: StdioTransport) =
         if transport.getErrorHandler().isSome:
           transport.getErrorHandler().get()(newMcpError(ErrorCode.InternalError, "Error processing message: " & e.msg))
 
+proc formatTimestamp(): string =
+  let dt = now().utc
+  result = dt.format("yyyy-MM-dd HH:mm:ss") & "Z"
+
+
 method start*(transport: StdioTransport): Future[void] {.async.} =
   stderr.writeLine "[MCP] Starting StdioTransport"
-  if transport.isConnected():
+  if transport.connected:
     raise newMcpError(ErrorCode.InvalidRequest, "Transport already started")
   
-  transport.setConnected(true)
-  stderr.writeLine "[MCP] Transport connected"
+  # Initialize transport state
+  transport.connected = true
+  transport.stdinFile = stdin
+  transport.stdoutFile = stdout
+  
+  # Verify transport state
+  stderr.writeLine &"[MCP] Transport state - connected: {transport.connected}, stdin: {not transport.stdinFile.isNil}, stdout: {not transport.stdoutFile.isNil}"
   
   # Start message receiving loop
   proc messageLoop() {.async.} =
-    var formatNow = times.utc(times.now()).format("yyyy-MM-dd HH:mm:ss'Z'")
-    stderr.writeLine &"[{formatNow}][MCP] Starting message receiving loop"
+    let timestamp = formatTimestamp()
+    stderr.writeLine &"[{timestamp}][MCP] Starting message receiving loop - isConnected: {transport.connected}, stdin: {not transport.stdinFile.isNil}, stdout: {not transport.stdoutFile.isNil}"
     
-    var line: string
-    while transport.isConnected():
+    while transport.connected:
       try:
-        # Read a line from stdin
-        if transport.stdinFile.readLine(line):
-          try:
-            let message = parseJson(line)
-            if transport.getMessageHandler().isSome:
-              transport.getMessageHandler().get()(message)
-          except JsonParsingError:
-            if transport.getErrorHandler().isSome:
-              transport.getErrorHandler().get()(newMcpError(ErrorCode.ParseError, "Invalid JSON message"))
-        
-        # Small delay to prevent CPU spinning
-        await sleepAsync(1)
+        # Check basic connection status
+        if transport.stdinFile.isNil or transport.stdoutFile.isNil:
+          stderr.writeLine &"[{timestamp}][MCP] Transport disconnected: file handle is nil - stdin: {transport.stdinFile.isNil}, stdout: {transport.stdoutFile.isNil}"
+          transport.connected = false
+          break
+
+        # Try to read a line
+        var line: string
+        try:
+          # First try to read without checking EOF
+          if transport.stdinFile.readLine(line):
+            try:
+              let message = parseJson(line)
+              if transport.getMessageHandler().isSome:
+                transport.getMessageHandler().get()(message)
+            except JsonParsingError:
+              stderr.writeLine &"[{timestamp}][MCP] Failed to parse message: {line}"
+              if transport.getErrorHandler().isSome:
+                transport.getErrorHandler().get()(newMcpError(ErrorCode.ParseError, "Invalid JSON message"))
+          else:
+            # No data available, check if it's really EOF
+            if transport.stdinFile.endOfFile:
+              stderr.writeLine &"[{timestamp}][MCP] EOF reached after read attempt"
+              transport.connected = false
+              break
+            
+            # Just yield to other tasks
+            await sleepAsync(10)  # Wait for more data
+            
+        except IOError as e:
+          stderr.writeLine &"[{timestamp}][MCP] IO error while reading: {e.msg}"
+          transport.connected = false
+          if transport.getErrorHandler().isSome:
+            transport.getErrorHandler().get()(newMcpError(ErrorCode.ConnectionClosed, "IO error: " & e.msg))
+          break
             
       except EOFError:
-        stderr.writeLine "[MCP] EOF reached, closing transport"
-        transport.setConnected(false)
+        stderr.writeLine &"[{timestamp}][MCP] EOF error caught, closing transport"
+        transport.connected = false
         if transport.getCloseHandler().isSome:
           transport.getCloseHandler().get()()
         break
       except Exception as e:
-        stderr.writeLine "[MCP] Error in message loop: ", e.msg, "\n", getStackTrace(e)
+        stderr.writeLine &"[{timestamp}][MCP] Error in message loop: {e.msg}\n{getStackTrace(e)}"
         if transport.getErrorHandler().isSome:
           transport.getErrorHandler().get()(newMcpError(ErrorCode.InternalError, "Error receiving message: " & e.msg))
+        break
 
-  asyncCheck messageLoop()
-  stderr.writeLine "[MCP] StdioTransport start completed"
+  # Start the message loop
+  await messageLoop()
+  stderr.writeLine &"[{formatTimestamp()}][MCP] Message loop ended - isConnected: {transport.connected}"
 
 method send*(transport: StdioTransport, message: JsonNode): Future[void] {.async.} =
-  if not transport.isConnected():
+  if not transport.connected:
     raise newMcpError(ErrorCode.ConnectionClosed, "Transport not connected")
   
   try:
+    # Check if stdout is still open
+    if transport.stdoutFile.isNil:
+      raise newMcpError(ErrorCode.ConnectionClosed, "stdout is closed")
+      
     let serialized = $message & "\n"
     transport.stdoutFile.write(serialized)
-    transport.stdoutFile.flushFile()
+    try:
+      transport.stdoutFile.flushFile()
+    except IOError as e:
+      stderr.writeLine "[MCP] Failed to flush stdout: ", e.msg
+      transport.connected = false
+      if transport.getCloseHandler().isSome:
+        transport.getCloseHandler().get()()
+      raise newMcpError(ErrorCode.ConnectionClosed, "Failed to flush stdout: " & e.msg)
     
     # Debug message only to stderr
     stderr.flushFile()
-  except Exception as e:
-    stderr.writeLine "[MCP] Failed to send message: ", e.msg
-    raise newMcpError(ErrorCode.InternalError, "Failed to send message: " & e.msg)
-
-method close*(transport: StdioTransport): Future[void] {.async.} =
-  if transport.isConnected():
-    transport.setConnected(false)
-    transport.buffer = ""
-    # Close stdin/stdout
-    transport.stdinFile.flushFile()
-    transport.stdoutFile.flushFile()
-    transport.stdinFile.close()
-    transport.stdoutFile.close()
-    # Notify closure
+  except IOError as e:
+    stderr.writeLine "[MCP] Failed to write message: ", e.msg
+    transport.connected = false
     if transport.getCloseHandler().isSome:
       transport.getCloseHandler().get()()
+    raise newMcpError(ErrorCode.ConnectionClosed, "Failed to write message: " & e.msg)
+  except Exception as e:
+    stderr.writeLine "[MCP] Error sending message: ", e.msg
+    raise newMcpError(ErrorCode.InternalError, "Error sending message: " & e.msg)
+
+method close*(transport: StdioTransport): Future[void] {.async.} =
+  if transport.connected:
+    transport.connected = false
+    transport.buffer = ""
+    
+    # Log transport state
+    stderr.writeLine "[MCP] Transport closing..."
+    
+    try:
+      # Flush and close stdout first
+      if not transport.stdoutFile.isNil:
+        transport.stdoutFile.flushFile()
+        transport.stdoutFile.close()
+        stderr.writeLine "[MCP] Stdout closed successfully"
+      
+      # Then flush and close stdin
+      if not transport.stdinFile.isNil:
+        transport.stdinFile.flushFile()
+        transport.stdinFile.close()
+        stderr.writeLine "[MCP] Stdin closed successfully"
+        
+      # Notify closure only after both streams are closed
+      if transport.getCloseHandler().isSome:
+        transport.getCloseHandler().get()()
+        
+    except IOError as e:
+      stderr.writeLine "[MCP] Error during transport close: ", e.msg
+      # Still try to notify closure even if there was an error
+      if transport.getCloseHandler().isSome:
+        transport.getCloseHandler().get()()
+
+method isConnected*(transport: StdioTransport): bool =
+  transport.connected and
+  not transport.stdinFile.isNil and
+  not transport.stdoutFile.isNil
 
 method isClosed*(transport: StdioTransport): bool =
-  not transport.isConnected() or
-  transport.stdinFile.isNil or transport.stdoutFile.isNil
+  not transport.connected or
+  transport.stdinFile.isNil or
+  transport.stdoutFile.isNil
 
 proc setMessageHandler*(transport: StdioTransport, handler: MessageHandler) =
   transport.msgHandler = handler
@@ -171,7 +244,7 @@ proc write*(transport: StdioTransport, message: JsonNode) {.async.} =
     debug(&"Error writing message: {e.msg}")
     raise newMcpError(ErrorCode.InternalError, &"Failed to write message: {e.msg}")
 
-proc isConnected*(transport: StdioTransport): bool =
-  transport.connected
+method setConnectionState*(transport: StdioTransport, value: bool) =
+  transport.connected = value
 
 export StdioTransport, newStdioTransport

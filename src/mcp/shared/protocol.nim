@@ -138,7 +138,7 @@ proc onResponse(protocol: Protocol, message: JsonNode) =
     return
 
   let id = if message["id"].kind == JString:
-    RequestId(kind: ridString, strVal: message["id"].getStr)
+    RequestId(kind: ridStr, strVal: message["id"].getStr)
   else:
     RequestId(kind: ridInt, intVal: message["id"].getInt)
 
@@ -171,7 +171,6 @@ proc onResponse(protocol: Protocol, message: JsonNode) =
     stderr.writeLine "[MCP] No handler found for response id: ", id
 
 proc onNotification(protocol: Protocol, notification: JsonRpcNotification) {.async.} =
-  stderr.writeLine "[MCP] Received notification: ", notification.`method`
   
   if notification.`method` == "$/progress":
     if notification.params != nil:
@@ -270,7 +269,7 @@ proc connect*(protocol: Protocol, transport: Transport): Future[void] {.async.} 
         let request = JsonRpcRequest(
           jsonrpc: message["jsonrpc"].getStr,
           id: if message["id"].kind == JString: 
-              RequestId(kind: ridString, strVal: message["id"].getStr)
+              RequestId(kind: ridStr, strVal: message["id"].getStr)
             else: 
               RequestId(kind: ridInt, intVal: message["id"].getInt),
           `method`: message["method"].getStr,

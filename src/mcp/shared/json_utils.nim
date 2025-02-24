@@ -47,9 +47,9 @@ proc toMcp*[T](node: JsonNode, _: typedesc[T]): T =
       })
   elif T is base_types.RequestId:
     if node.kind == JString:
-      result = newRequestId(node.getStr)
+      result = newRequestId(node.getStr(""))
     else:
-      result = newRequestId(node.getInt)
+      result = newRequestId(node.getInt(0))
   elif T is base_types.ProgressToken:
     if node.kind == JString:
       result = newProgressToken(node.getStr)

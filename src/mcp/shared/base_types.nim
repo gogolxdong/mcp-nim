@@ -40,12 +40,18 @@ type
     rawParams*: JsonNode
 
   RequestIdKind* = enum
-    ridString, ridInt
+    ridNone,  # No ID
+    ridInt,   # Integer ID
+    ridStr    # String ID
 
   RequestId* = object
     case kind*: RequestIdKind
-    of ridString: strVal*: string
-    of ridInt: intVal*: int
+    of ridNone:
+      discard
+    of ridInt:
+      intVal*: int
+    of ridStr:
+      strVal*: string
 
   JsonRpcRequest* = object
     jsonrpc*: string
@@ -128,15 +134,19 @@ proc `$`*(token: ProgressToken): string =
 
 # Request ID helpers
 proc newRequestId*(value: string): RequestId =
-  RequestId(kind: ridString, strVal: value)
+  RequestId(kind: ridStr, strVal: value)
 
 proc newRequestId*(value: int): RequestId =
   RequestId(kind: ridInt, intVal: value)
 
 proc `$`*(id: RequestId): string =
   case id.kind
-  of ridString: id.strVal
-  of ridInt: $id.intVal
+  of ridNone:
+    "None"
+  of ridInt:
+    $id.intVal
+  of ridStr:
+    id.strVal
 
 # JSON serialization helpers
 proc `%`*(token: ProgressToken): JsonNode =
@@ -146,8 +156,12 @@ proc `%`*(token: ProgressToken): JsonNode =
 
 proc `%`*(id: RequestId): JsonNode =
   case id.kind
-  of ridString: %id.strVal
-  of ridInt: %id.intVal
+  of ridNone:
+    %"None"
+  of ridInt:
+    %id.intVal
+  of ridStr:
+    %id.strVal
 
 proc `%`*(params: BaseRequestParams): JsonNode =
   result = newJObject()

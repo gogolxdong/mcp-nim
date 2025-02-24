@@ -24,6 +24,9 @@ method init*(transport: Transport) {.base.} =
   transport.errorHandler = none(proc(error: McpError))
   transport.messageHandler = none(proc(message: JsonNode))
 
+method isConnected*(transport: Transport): bool {.base.} =
+  transport.isConnected
+
 method start*(transport: Transport): Future[void] {.base.} =
   raiseAssert "Transport.start must be implemented by subclass"
 
@@ -45,9 +48,6 @@ method setErrorHandler*(transport: Transport, handler: proc(error: McpError)) {.
 method setCloseHandler*(transport: Transport, handler: proc()) {.base.} =
   transport.closeHandler = some(handler)
 
-method isConnected*(transport: Transport): bool {.base.} =
-  transport.isConnected
-
 method getMessageHandler*(transport: Transport): Option[proc(message: JsonNode)] {.base.} =
   transport.messageHandler
 
@@ -57,7 +57,10 @@ method getErrorHandler*(transport: Transport): Option[proc(error: McpError)] {.b
 method getCloseHandler*(transport: Transport): Option[proc()] {.base.} =
   transport.closeHandler
 
-method setConnected*(transport: Transport, value: bool) {.base.} =
+method getConnectionState*(transport: Transport): bool {.base.} =
+  transport.isConnected
+
+method setConnectionState*(transport: Transport, value: bool) {.base.} =
   transport.isConnected = value
 
 proc newInMemoryTransport*(): InMemoryTransport =
