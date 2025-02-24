@@ -7,8 +7,8 @@ Nim implementation of the Model Context Protocol (MCP) for building AI agent cap
 1. Install [Nim compiler](https://nim-lang.org/install.html)
 2. Clone repository:
 ```bash
-git clone https://github.com/yourusername/nim-mcp-sdk.git
-cd nim-mcp-sdk
+git clone https://github.com/yourusername/mcp-nim.git
+cd mcp-nim
 ```
 
 ## Configuration
@@ -16,6 +16,7 @@ cd nim-mcp-sdk
 ### Claude Integration
 1. Locate MCP config file:
    - Claude Desktop: `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
+   - Claude Desktop: C:\Users\xxx\AppData\Roaming\Claude\claude_desktop_config.json (Windows)
    - Cursor: `%APPDATA%\Cursor\User\globalStorage\rooveterinaryinc.roo-cline\settings\cline_mcp_settings.json` (Windows)
 
 2. Add server configuration:
