@@ -1,0 +1,9 @@
+nimcache/
+*.exe
+*.out
+*.o
+*.obj
+*.lib
+*.exp
+*.def
+*.manifest
