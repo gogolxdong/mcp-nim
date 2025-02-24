@@ -48,12 +48,14 @@ type
 
   JsonTypeError* = object of JsonParsingError
 
+# Constructor helpers for Cursor
 proc newCursor*(value: string): Cursor =
   Cursor(value)
 
 proc `$`*(cursor: Cursor): string =
   string(cursor)
 
+# JSON serialization helpers
 proc `%`*(cursor: Cursor): JsonNode =
   %($cursor)
 
@@ -88,8 +90,8 @@ proc `%`*(capabilities: ServerCapabilities): JsonNode =
 
 proc raiseTypeError(expected, actual: JsonNodeKind, node: JsonNode) =
   let info = instantiationInfo()
-  var msg = &"JSON type error: expected {expected} type, received {actual} type"
-  msg &= &"\nLocation: {info.filename}:{info.line}"
+  var msg = &"JSON类型错误：期待{expected}类型，实际收到{actual}类型"
+  msg &= &"\n位置：{info.filename}:{info.line}"
   raise newException(JsonTypeError, msg)
 
 proc toMcp*(node: JsonNode, _: typedesc[Progress]): Progress =

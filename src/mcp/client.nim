@@ -3,7 +3,7 @@ import ./types as mcp_types
 import ./shared/[protocol, transport, base_types]
 
 const
-  DEFAULT_INIT_TIMEOUT_MSEC = 120000  
+  DEFAULT_INIT_TIMEOUT_MSEC = 120000  # 2 minutes
 
 type
   McpClient* = ref object
@@ -45,9 +45,11 @@ proc connect*(client: McpClient, transport: Transport): Future[void] {.async.} =
     some(protocol.RequestOptions(timeout: some(DEFAULT_INIT_TIMEOUT_MSEC)))
   )
 
+  # Parse server capabilities
   if response.hasKey("capabilities"):
     client.serverCapabilities = some(response["capabilities"].toMcp(mcp_types.ServerCapabilities))
 
+  # Send initialized notification
   let initNotification = %*{
     "jsonrpc": protocol.JSONRPC_VERSION,
     "method": "initialized"

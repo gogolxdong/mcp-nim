@@ -94,9 +94,11 @@ proc match*(template: UriTemplate, uri: string): Option[Table[string, string]] =
   var variables = initTable[string, string]()
   var pattern = template.template
 
+  # Escape special regex characters in the template parts
   for c in ['.', '^', '$', '*', '+', '?', '(', ')', '[', ']', '{', '}', '\\', '|']:
     pattern = pattern.replace($c, "\\" & $c)
 
+  # Replace variable specifications with capture groups
   for spec in template.variables:
     let varPattern = 
       if spec.prefix.isSome:
@@ -106,12 +108,12 @@ proc match*(template: UriTemplate, uri: string): Option[Table[string, string]] =
     pattern = pattern.replace(&"{{{spec.name}}}", varPattern)
 
   let regex = re('^' & pattern & '$')
-  var matches: array[20, string]  
+  var matches: array[20, string]  # Support up to 20 variables
   if uri.match(regex, matches):
     for i, spec in template.variables:
       if i >= matches.len:
         break
-      if matches[i+1].len > 0: 
+      if matches[i+1].len > 0:  # +1 because first match is whole string
         variables[spec.name] = decodeUrl(matches[i+1])
     return some(variables)
 

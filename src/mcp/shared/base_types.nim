@@ -2,10 +2,12 @@ import std/[asyncdispatch, json, options]
 
 type
   ErrorCode* = enum
+    # SDK error codes
     ConnectionClosed = -32000
     RequestTimeout = -32001
     InvalidCapability = -32002
     
+    # Standard JSON-RPC error codes
     ParseError = -32700
     InvalidRequest = -32600
     MethodNotFound = -32601
@@ -83,6 +85,7 @@ type
 
   TransportMessage* = JsonRpcRequest | JsonRpcResponse | JsonRpcNotification
 
+# Constructor for AbortSignal
 proc newAbortSignal*(): AbortSignal =
   AbortSignal(triggered: false)
 
@@ -90,6 +93,7 @@ proc abort*(signal: AbortSignal, reason: string = "") =
   signal.triggered = true
   signal.reason = reason
 
+# Error handling
 proc newMcpError*(code: ErrorCode, msg: string, data: JsonNode = nil): McpError =
   new(result)
   result.msg = msg
@@ -110,6 +114,7 @@ proc `$`*(error: McpError): string =
     result &= ", data: " & $error.data.get
   result &= ")"
 
+# Progress token helpers
 proc newProgressToken*(value: string): ProgressToken =
   ProgressToken(kind: ptkString, strVal: value)
 
@@ -121,6 +126,7 @@ proc `$`*(token: ProgressToken): string =
   of ptkString: token.strVal
   of ptkInt: $token.intVal
 
+# Request ID helpers
 proc newRequestId*(value: string): RequestId =
   RequestId(kind: ridString, strVal: value)
 
@@ -132,6 +138,7 @@ proc `$`*(id: RequestId): string =
   of ridString: id.strVal
   of ridInt: $id.intVal
 
+# JSON serialization helpers
 proc `%`*(token: ProgressToken): JsonNode =
   case token.kind
   of ptkString: %token.strVal

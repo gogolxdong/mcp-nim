@@ -7,7 +7,7 @@ import ./json_utils
 
 const
   DEFAULT_REQUEST_TIMEOUT_MSEC* = 60000
-  DEFAULT_INIT_TIMEOUT_MSEC* = 120000  
+  DEFAULT_INIT_TIMEOUT_MSEC* = 120000  # 初始化请求使用更长的超时时间
   JSONRPC_VERSION* = "2.0"
 
 type
@@ -187,7 +187,6 @@ proc onNotification(protocol: Protocol, notification: JsonRpcNotification) {.asy
       return
 
   try:
-    stderr.writeLine "[MCP] Calling handler for notification: ", notification.`method`
     await handler(notification)
   except Exception as e:
     protocol.onError(newMcpError(
@@ -196,18 +195,13 @@ proc onNotification(protocol: Protocol, notification: JsonRpcNotification) {.asy
     ))
 
 proc onRequest(protocol: Protocol, request: JsonRpcRequest) {.async.} =
-  stderr.writeLine "[MCP] Received request: ", request.`method`
-  stderr.writeLine "[MCP] Full request: ", $request
   
   let handler =
     if protocol.requestHandlers.hasKey(request.`method`):
-      stderr.writeLine "[MCP] Found handler for method: ", request.`method`
       protocol.requestHandlers[request.`method`]
     elif protocol.fallbackRequestHandler.isSome:
-      stderr.writeLine "[MCP] Using fallback handler"
       protocol.fallbackRequestHandler.get
     else:
-      stderr.writeLine "[MCP] No handler found for method: ", request.`method`
       try:
         let errorResponse = %*{
           "jsonrpc": JSONRPC_VERSION,
@@ -217,7 +211,6 @@ proc onRequest(protocol: Protocol, request: JsonRpcRequest) {.async.} =
             "message": "Method not found"
           }
         }
-        stderr.writeLine "[MCP] Method not found, sending error response: ", $errorResponse
         await protocol.transport.send(errorResponse)
       except Exception as e:
         stderr.writeLine "[MCP] Failed to send error response: ", e.msg
@@ -231,16 +224,13 @@ proc onRequest(protocol: Protocol, request: JsonRpcRequest) {.async.} =
   let extra = RequestHandlerExtra(signal: abortSignal)
 
   try:
-    stderr.writeLine "[MCP] Calling handler for method: ", request.`method`
     let result = await handler(request, extra)
-    stderr.writeLine "[MCP] Handler returned result: ", $result
 
     let response = %*{
       "jsonrpc": JSONRPC_VERSION,
       "id": request.id,
       "result": result
     }
-    stderr.writeLine "[MCP] Sending response: ", $response
     await protocol.transport.send(response)
   except McpError as e:
     stderr.writeLine "[MCP] Handler returned error: ", e.msg
@@ -267,19 +257,16 @@ proc onRequest(protocol: Protocol, request: JsonRpcRequest) {.async.} =
     await protocol.transport.send(errorResponse)
 
 proc connect*(protocol: Protocol, transport: Transport): Future[void] {.async.} =
-  stderr.writeLine "[MCP] Protocol connecting to transport"
   protocol.transport = transport
   await transport.start()
 
   transport.setMessageHandler(proc(message: JsonNode) =
-    stderr.writeLine "[MCP] Processing message: ", $message
     if not message.hasKey("jsonrpc") or message["jsonrpc"].getStr != JSONRPC_VERSION:
       protocol.onError(newMcpError(ErrorCode.InvalidRequest, "Invalid JSON-RPC version"))
       return
 
     if message.hasKey("method"):
       if message.hasKey("id"):
-        stderr.writeLine "[MCP] Processing as request"
         let request = JsonRpcRequest(
           jsonrpc: message["jsonrpc"].getStr,
           id: if message["id"].kind == JString: 
@@ -291,7 +278,6 @@ proc connect*(protocol: Protocol, transport: Transport): Future[void] {.async.} 
         )
         asyncCheck onRequest(protocol, request)
       else:
-        stderr.writeLine "[MCP] Processing as notification"
         let notification = JsonRpcNotification(
           jsonrpc: message["jsonrpc"].getStr,
           `method`: message["method"].getStr,
@@ -299,7 +285,6 @@ proc connect*(protocol: Protocol, transport: Transport): Future[void] {.async.} 
         )
         asyncCheck onNotification(protocol, notification)
     elif message.hasKey("result") or message.hasKey("error"):
-      stderr.writeLine "[MCP] Processing as response"
       protocol.onResponse(message)
     else:
       protocol.onError(newMcpError(ErrorCode.InvalidRequest, "Invalid message format"))
