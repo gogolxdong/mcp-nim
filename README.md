@@ -16,7 +16,7 @@ cd mcp-nim
 ### Claude Integration
 1. Locate MCP config file:
    - Claude Desktop: `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
-   - Claude Desktop: C:\Users\xxx\AppData\Roaming\Claude\claude_desktop_config.json (Windows)
+   - Claude Desktop: `C:\Users\xxx\AppData\Roaming\Claude\claude_desktop_config.json` (Windows)
    - Cursor: `%APPDATA%\Cursor\User\globalStorage\rooveterinaryinc.roo-cline\settings\cline_mcp_settings.json` (Windows)
 
 2. Add server configuration:
